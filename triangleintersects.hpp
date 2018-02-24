@@ -45,8 +45,9 @@ class TriangleIntersects
     static_assert(std::is_floating_point<declfloat>::value, "The elements of vector3 need to be floats or doubles");
 
   public:
-    static bool triangle(TemplatedVec &firstV1, TemplatedVec &firstV2, TemplatedVec &firstV3, TemplatedVec &secondV1,
-                         TemplatedVec &secondV2, TemplatedVec &secondV3)
+    static constexpr declfloat EPSILON = 0.000001f;
+    static bool triangle(const TemplatedVec &firstV1, const TemplatedVec &firstV2, const TemplatedVec &firstV3,
+                         const TemplatedVec &secondV1, const TemplatedVec &secondV2, const TemplatedVec &secondV3)
     {
         TemplatedVec IntersectionLineEndPoint1;
         TemplatedVec IntersectionLineEndPoint2;
@@ -55,23 +56,23 @@ class TriangleIntersects
                                                 IntersectionLineEndPoint1, IntersectionLineEndPoint2, false);
     }
 
-    static bool triangle(TemplatedVec &firstV1, TemplatedVec &firstV2, TemplatedVec &firstV3, TemplatedVec &secondV1,
-                         TemplatedVec &secondV2, TemplatedVec &secondV3, TemplatedVec &IntersectionLineEndPoint1,
-                         TemplatedVec &IntersectionLineEndPoint2, bool &coplanar)
+    static bool triangle(const TemplatedVec &firstV1, const TemplatedVec &firstV2, const TemplatedVec &firstV3,
+                         const TemplatedVec &secondV1, const TemplatedVec &secondV2, const TemplatedVec &secondV3,
+                         TemplatedVec &IntersectionLineEndPoint1, TemplatedVec &IntersectionLineEndPoint2,
+                         bool &coplanar)
     {
         return tri_tri_intersect_with_isectline(firstV1, firstV2, firstV3, secondV1, secondV2, secondV3, coplanar,
                                                 IntersectionLineEndPoint1, IntersectionLineEndPoint2, true);
     }
 
-    static bool box(TemplatedVec triangleV1, TemplatedVec triangleV2, TemplatedVec triangleV3, TemplatedVec boxCenter,
-                    TemplatedVec boxHalfSize)
+    static bool box(const TemplatedVec triangleV1, const TemplatedVec triangleV2, const TemplatedVec triangleV3,
+                    const TemplatedVec boxCenter, const TemplatedVec boxHalfSize)
     {
         return triBoxOverlap(triangleV1, triangleV2, triangleV3, boxCenter, boxHalfSize);
     }
 
   private:
     // Constants definitions
-    static constexpr declfloat EPSILON = 0.000001f;
     static const size_t X = 0;
     static const size_t Y = 1;
     static const size_t Z = 2;
@@ -633,33 +634,33 @@ class TriangleIntersects
         {
             if (smallest1 == 0)
             {
-                dot(isectpt1, isectpointA1);
+                set(isectpt1, isectpointA1);
             }
             else
             {
-                dot(isectpt1, isectpointA2);
+                set(isectpt1, isectpointA2);
             }
 
             if (isect2[1] < isect1[1])
             {
                 if (smallest2 == 0)
                 {
-                    dot(isectpt2, isectpointB2);
+                    set(isectpt2, isectpointB2);
                 }
                 else
                 {
-                    dot(isectpt2, isectpointB1);
+                    set(isectpt2, isectpointB1);
                 }
             }
             else
             {
                 if (smallest1 == 0)
                 {
-                    dot(isectpt2, isectpointA2);
+                    set(isectpt2, isectpointA2);
                 }
                 else
                 {
-                    dot(isectpt2, isectpointA1);
+                    set(isectpt2, isectpointA1);
                 }
             }
         }
@@ -667,33 +668,33 @@ class TriangleIntersects
         {
             if (smallest2 == 0)
             {
-                dot(isectpt1, isectpointB1);
+                set(isectpt1, isectpointB1);
             }
             else
             {
-                dot(isectpt1, isectpointB2);
+                set(isectpt1, isectpointB2);
             }
 
             if (isect2[1] > isect1[1])
             {
                 if (smallest1 == 0)
                 {
-                    dot(isectpt2, isectpointA2);
+                    set(isectpt2, isectpointA2);
                 }
                 else
                 {
-                    dot(isectpt2, isectpointA1);
+                    set(isectpt2, isectpointA1);
                 }
             }
             else
             {
                 if (smallest2 == 0)
                 {
-                    dot(isectpt2, isectpointB2);
+                    set(isectpt2, isectpointB2);
                 }
                 else
                 {
-                    dot(isectpt2, isectpointB1);
+                    set(isectpt2, isectpointB1);
                 }
             }
         }
@@ -806,3 +807,4 @@ class TriangleIntersects
 };
 }
 #endif  // TRIANGLEINTERSECTS_H
+
