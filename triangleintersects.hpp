@@ -3,15 +3,17 @@
 #include <utility>
 #include <type_traits>
 #include <iostream>
+#include <cmath>
 
-#include <math.h>
-#include <stdio.h>
+#ifndef NDEBUG
+#include "logger.h"
+#endif
 
 /**
  * Single header mplementation of Triangle-Triangle and Triangle-Box intersection tests by Tomas Akenine Moeller
  * @see http://fileadmin.cs.lth.se/cs/Personal/Tomas_Akenine-Moller/code/tribox3.txt
  * @see http://fileadmin.cs.lth.se/cs/Personal/Tomas_Akenine-Moller/code/tritri_isectline.txt
-*/
+ */
 
 namespace moeller
 {
@@ -29,42 +31,58 @@ struct has_subscript_operator<T, Index, void_t<decltype(std::declval<T>()[std::d
 };
 
 /**
- * Template @param T is any array like structure of any floating point type that implements the subscript operator
+ * @param TemplatedVec is any random-access 3-element container with operator[] returning a floating-point type
  *
  * Provides bool moeller:TriangleIntersects<T>::triangle(T v1, T v2, T v3, T u1, T u2, T u3);
  * Provides bool moeller:TriangleIntersects<T>::triangle(T v1, T v2, T v3, T u1, T u2, T u3, T out_inters_endpoint1,
- *  T out_inters_endpoint1, bool out_is_coplanar);
+ *  T out_inters_endpoint2, bool out_is_coplanar);
  * Provides bool moeller:TriangleIntersects<T>::box(T v1, T v2, T v3, T boxCenter, T boxHalfSize);
  */
 
-template <class TemplatedVec>
+template <typename TemplatedVec>
 class TriangleIntersects
 {
-    static_assert(has_subscript_operator<TemplatedVec, size_t>::value, "Vector3 needs to implement [] operator");
+    using Triangle = std::array<TemplatedVec, 3>;
+
+    static_assert(has_subscript_operator<TemplatedVec, size_t>::value, "TemplatedVec must implement operator[]");
     typedef typename std::decay<decltype(std::declval<TemplatedVec>()[0])>::type declfloat;
-    static_assert(std::is_floating_point<declfloat>::value, "The elements of vector3 need to be floats or doubles");
+    static_assert(std::is_floating_point<declfloat>::value, "Elements of TemplatedVec must be of floating-point type");
 
   public:
-    static constexpr declfloat EPSILON = 0.000001f;
+    // Magic number from orginal Moeller's implementation:
+    // distances smaller than EPSILON may be treated as ZERO
+    static constexpr declfloat EPSILON = declfloat(1e-6);
+
+    static constexpr declfloat epsilon() { return EPSILON; }
+
+    // returns true iff two triangles are intersecting or touching
     static bool triangle(const TemplatedVec &firstV1, const TemplatedVec &firstV2, const TemplatedVec &firstV3,
                          const TemplatedVec &secondV1, const TemplatedVec &secondV2, const TemplatedVec &secondV3)
     {
         TemplatedVec IntersectionLineEndPoint1;
         TemplatedVec IntersectionLineEndPoint2;
         bool coplanar;
+        double debug_reduced_to_0__;  // to be removed once the code has been debugged && understood
         return tri_tri_intersect_with_isectline(firstV1, firstV2, firstV3, secondV1, secondV2, secondV3, coplanar,
-                                                IntersectionLineEndPoint1, IntersectionLineEndPoint2, false);
+                                                IntersectionLineEndPoint1, IntersectionLineEndPoint2, false,
+                                                debug_reduced_to_0__);
     }
 
+    // similar to the previous function, but returns additional information
+    // on the intersection line in the case of non-parllel triangles
+    // and whether the two triangles are coplanar (in which case the intersection line is undefined)
     static bool triangle(const TemplatedVec &firstV1, const TemplatedVec &firstV2, const TemplatedVec &firstV3,
                          const TemplatedVec &secondV1, const TemplatedVec &secondV2, const TemplatedVec &secondV3,
                          TemplatedVec &IntersectionLineEndPoint1, TemplatedVec &IntersectionLineEndPoint2,
                          bool &coplanar)
     {
+        double debug_reduced_to_0__ = 0.0;  // to be removed once the code has been debugged && understood
         return tri_tri_intersect_with_isectline(firstV1, firstV2, firstV3, secondV1, secondV2, secondV3, coplanar,
-                                                IntersectionLineEndPoint1, IntersectionLineEndPoint2, true);
+                                                IntersectionLineEndPoint1, IntersectionLineEndPoint2, true,
+                                                debug_reduced_to_0__);
     }
 
+    // tests if a triangle intersects a box with its faces parallel to the x-y-z Cartesian axis
     static bool box(const TemplatedVec triangleV1, const TemplatedVec triangleV2, const TemplatedVec triangleV3,
                     const TemplatedVec boxCenter, const TemplatedVec boxHalfSize)
     {
@@ -73,44 +91,72 @@ class TriangleIntersects
 
   private:
     // Constants definitions
-    static const size_t X = 0;
-    static const size_t Y = 1;
-    static const size_t Z = 2;
+    static constexpr size_t X = 0;
+    static constexpr size_t Y = 1;
+    static constexpr size_t Z = 2;
 
     // Helper methods
+
+    // cross product
     inline static void cross(TemplatedVec &dest, const TemplatedVec &v1, const TemplatedVec &v2)
     {
-        dest[0] = v1[1] * v2[2] - v1[2] * v2[1];
-        dest[1] = v1[2] * v2[0] - v1[0] * v2[2];
-        dest[2] = v1[0] * v2[1] - v1[1] * v2[0];
+        dest[X] = v1[Y] * v2[Z] - v1[Z] * v2[Y];
+        dest[Y] = v1[Z] * v2[X] - v1[X] * v2[Z];
+        dest[Z] = v1[X] * v2[Y] - v1[Y] * v2[X];
     }
+    // dot product
     inline static declfloat dot(const TemplatedVec &v1, const TemplatedVec &v2)
     {
-        return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+        return v1[X] * v2[X] + v1[Y] * v2[Y] + v1[Z] * v2[Z];
     }
+    // vector normalization
+    inline static void normalize(TemplatedVec &v)
+    {
+        constexpr double zero_length_threshold = 1e-20;
+        double norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (norm > zero_length_threshold)
+        {
+            v[0] /= norm;
+            v[1] /= norm;
+            v[2] /= norm;
+        }
+        else
+        {
+//            uncomment if we're sure no vector can ba a zero-length one
+//            throw std::logic_error("cannot normalize a zero-lenght vector");
+#ifndef NDEBUG
+            auto debug = LoggerManager::get_logger(LoggerType::DEBUG_MT);
+            debug->warn("{}: Failed to normalize a zero-length vector!", __FUNCTION__);
+#endif
+        }
+    }
+    // vector subtraction
     inline static void sub(TemplatedVec &dest, const TemplatedVec &v1, const TemplatedVec &v2)
     {
-        dest[0] = v1[0] - v2[0];
-        dest[1] = v1[1] - v2[1];
-        dest[2] = v1[2] - v2[2];
+        dest[X] = v1[X] - v2[X];
+        dest[Y] = v1[Y] - v2[Y];
+        dest[Z] = v1[Z] - v2[Z];
     }
+    // vector addition
     inline static void add(TemplatedVec &dest, const TemplatedVec &v1, const TemplatedVec &v2)
     {
-        dest[0] = v1[0] + v2[0];
-        dest[1] = v1[1] + v2[1];
-        dest[2] = v1[2] + v2[2];
+        dest[X] = v1[X] + v2[X];
+        dest[Y] = v1[Y] + v2[Y];
+        dest[Z] = v1[Z] + v2[Z];
     }
+    // vector product by scalar
     inline static void mult(TemplatedVec &dest, const TemplatedVec &v, const declfloat factor)
     {
-        dest[0] = factor * v[0];
-        dest[1] = factor * v[1];
-        dest[2] = factor * v[2];
+        dest[X] = factor * v[X];
+        dest[Y] = factor * v[Y];
+        dest[Z] = factor * v[Z];
     }
+    // assignment
     inline static void set(TemplatedVec &dest, const TemplatedVec &src)
     {
-        dest[0] = src[0];
-        dest[1] = src[1];
-        dest[2] = src[2];
+        dest[X] = src[X];
+        dest[Y] = src[Y];
+        dest[Z] = src[Z];
     }
     inline static void sort(declfloat &a, declfloat &b)
     {
@@ -277,18 +323,30 @@ class TriangleIntersects
     }
 
     // Tests for Triangle-Triangle
+
+    // Tests whether edge U0, U1 intersects with the edge whose origin is V0 and the coordinates
+    // of the vector pointing towards the second vertex are Ax (along i0 axis) and Ay (along i1 axis).
+    // A = V1 - V0
+    // i0 stands for the "x" axis and "i1" for the "y" axis in the new (local) coordinate system.
+    // The vertices are projected onto the i0-i1 plane before the actual intersection detection is performed
+    //
+    // Caveat! This test most likely fails if the two edges ar colinear
+    // But this doesn't disturb the final result (other tests will detect the intersection)
     inline static bool edge_edge_test(const TemplatedVec &V0, const TemplatedVec &U0, const TemplatedVec &U1,
                                       const size_t i0, const size_t i1, declfloat Ax, declfloat Ay)
     {
         declfloat Bx, By, Cx, Cy, f, d, e;
-        Bx = U0[i0] - U1[i0];
+        Bx = U0[i0] - U1[i0];  // B = U0 - U1 (projected onto the i0-i1 plane)
         By = U0[i1] - U1[i1];
-        Cx = V0[i0] - U0[i0];
+        Cx = V0[i0] - U0[i0];  // C = V0 - U0 (projected onto the i0-i1 plane)
         Cy = V0[i1] - U0[i1];
+        // if the edges intersect, |f| is half the area of the convex quadrilateral spanned by the vertices
         f = Ay * Bx - Ax * By;
+        // if the edges intersect, |d| is half the area of the triangle U0, U1, V0
         d = By * Cx - Bx * Cy;
         if ((f > 0 && d >= 0 && d <= f) || (f < 0 && d <= 0 && d >= f))
         {
+            // if the edges intersect, |e| is half the area of the triangle V0, V1, U0
             e = Ax * Cy - Ay * Cx;
             if (f > 0)
             {
@@ -299,26 +357,32 @@ class TriangleIntersects
                 if (e <= 0 && e >= f) return true;
             }
         }
+        // all Vertices are colinear iff f == 0 and d == 0, but for some reason this is not tested here
         return false;
     }
+
+    // V0, V1 define an edge
+    // U0, U1, U2 define a triangle
+    // i0, i1 \in {0,1,2} define the plane (x-y, x-z or y-z) onto which all five vertices are projected
     inline static bool edge_against_tri_edge(const TemplatedVec &V0, const TemplatedVec &V1, const TemplatedVec &U0,
                                              const TemplatedVec &U1, const TemplatedVec &U2, const size_t i0,
                                              const size_t i1)
     {
-        declfloat Ax, Ay;
+        declfloat Ax, Ay;  // coordinates of the edge relative to  V0
+
         Ax = V1[i0] - V0[i0];
         Ay = V1[i1] - V0[i1];
-        /* test edge U0,U1 against V0,V1 */
+        /* test intersection of edge U0, U1 with edge V0, V1 */
         if (edge_edge_test(V0, U0, U1, i0, i1, Ax, Ay))
         {
             return true;
         }
-        /* test edge U1,U2 against V0,V1 */
+        /* test edge U1,U2 against V1 - V0 */
         if (edge_edge_test(V0, U1, U2, i0, i1, Ax, Ay))
         {
             return true;
         }
-        /* test edge U2,U1 against V0,V1 */
+        /* test edge U2,U1 against V1 - V0 */
         if (edge_edge_test(V0, U2, U0, i0, i1, Ax, Ay))
         {
             return true;
@@ -364,12 +428,12 @@ class TriangleIntersects
         b = -(U0[i0] - U2[i0]);
         c = -a * U2[i0] - b * U2[i1];
         d2 = a * V0[i0] + b * V0[i1] + c;
+
         if (d0 * d1 > 0.0)
         {
             if (d0 * d2 > 0.0) return true;
         }
-        else
-            return false;
+        return false;
     }
 
     // Private methods
@@ -518,23 +582,26 @@ class TriangleIntersects
         return true; /* box and triangle overlaps */
     }
 
+  public:
+    // the last argument, "debug_reduced_to_0__", is here for research/diagnostic purpose only
+    // and most likely will be removed in the final version
     static bool tri_tri_intersect_with_isectline(const TemplatedVec &V0, const TemplatedVec &V1, const TemplatedVec &V2,
                                                  const TemplatedVec &U0, const TemplatedVec &U1, const TemplatedVec &U2,
                                                  bool &coplanar, TemplatedVec &isectpt1, TemplatedVec &isectpt2,
-                                                 bool check_isect_endpoints)
+                                                 bool check_isect_endpoints, double &debug_reduced_to_0__)
     {
-        TemplatedVec E1 = {0.f, 0.f, 0.f};
-        TemplatedVec E2 = {0.f, 0.f, 0.f};
-        TemplatedVec N1 = {0.f, 0.f, 0.f};
-        TemplatedVec N2 = {0.f, 0.f, 0.f};
+        TemplatedVec E1 = {0.0, 0.0, 0.0};
+        TemplatedVec E2 = {0.0, 0.0, 0.0};
+        TemplatedVec N1 = {0.0, 0.0, 0.0};
+        TemplatedVec N2 = {0.0, 0.0, 0.0};
         declfloat d1, d2;
         declfloat du0, du1, du2, dv0, dv1, dv2;
-        TemplatedVec D = {0.f, 0.f, 0.f};
+        TemplatedVec D = {0.0, 0.0, 0.0};
         declfloat isect1[2], isect2[2];
-        TemplatedVec isectpointA1 = {0.f, 0.f, 0.f};
-        TemplatedVec isectpointA2 = {0.f, 0.f, 0.f};
-        TemplatedVec isectpointB1 = {0.f, 0.f, 0.f};
-        TemplatedVec isectpointB2 = {0.f, 0.f, 0.f};
+        TemplatedVec isectpointA1 = {0.0, 0.0, 0.0};
+        TemplatedVec isectpointA2 = {0.0, 0.0, 0.0};
+        TemplatedVec isectpointB1 = {0.0, 0.0, 0.0};
+        TemplatedVec isectpointB2 = {0.0, 0.0, 0.0};
         declfloat du0du1, du0du2, dv0dv1, dv0dv2;
         size_t index;
         declfloat vp0, vp1, vp2;
@@ -543,32 +610,49 @@ class TriangleIntersects
         size_t smallest1, smallest2;
 
         /* compute plane equation of triangle(V0,V1,V2) */
-        sub(E1, V1, V0);
-        sub(E2, V2, V0);
-        cross(N1, E1, E2);
-        d1 = -dot(N1, V0);
-        /* plane equation 1: N1.X+d1=0 */
+        sub(E1, V1, V0);    // E1 = V1 - V0
+        sub(E2, V2, V0);    // E2 = V2 - V0
+        cross(N1, E1, E2);  // N1 = E1 \times E2
+        normalize(N1);      // normalization; added by ZK
+        d1 = -dot(N1, V0);  // d1 = -N1.V0
+        /* plane equation 1: N1.X + d1 = 0 */
 
-        /* put U0,U1,U2 into plane equation 1 to compute signed distances to the plane*/
+        /* put U0, U1, U2 into plane equation 1 to compute signed distances to the plane */
         du0 = dot(N1, U0) + d1;
         du1 = dot(N1, U1) + d1;
         du2 = dot(N1, U2) + d1;
 
-        if (fabs(du0) < EPSILON) du0 = 0.0;
-        if (fabs(du1) < EPSILON) du1 = 0.0;
-        if (fabs(du2) < EPSILON) du2 = 0.0;
+        auto conditionally_round_to_zero = [&debug_reduced_to_0__](declfloat &d) -> void {
+            double x = fabs(d);
+            if (x >= EPSILON || x == 0.0)  //
+                return;                    // RETURN
+            if (x > debug_reduced_to_0__) debug_reduced_to_0__ = x;
+            d = 0.0;
+        };
+
+        // In the instructions below, du0, du1 and du2 may be conditionally/artifically set to 0
+        // This does not seem to influence any arithmetic computations (vertex coordinates are left intact)
+        // However, their value equal to zero is used further below in conditional statements
+        //   to indicate that a vertex from a face is coplanar with the other face
+        //   and this bit of information is used as a branch selector in the algorithmic tree
+        // Thus, the value of EPSILON controls the definition of 4 vertices being considered "coplanar"
+        debug_reduced_to_0__ = 0.0;        // to be removed once the code has been debugged && understood
+        conditionally_round_to_zero(du0);  // if (fabs(du0) < EPSILON) du0 = 0.0;
+        conditionally_round_to_zero(du1);  // if (fabs(du1) < EPSILON) du1 = 0.0;
+        conditionally_round_to_zero(du2);  // if (fabs(du2) < EPSILON) du2 = 0.0;
 
         du0du1 = du0 * du1;
         du0du2 = du0 * du2;
 
         if (du0du1 > 0.0f && du0du2 > 0.0f) /* same sign on all of them + not equal 0 ? */
-            return false;                   /* no intersection occurs */
+            return false;                   /* RETURN: no intersection occurs */
 
         /* compute plane of triangle (U0,U1,U2) */
-        sub(E1, U1, U0);
-        sub(E2, U2, U0);
-        cross(N2, E1, E2);
-        d2 = -dot(N2, U0);
+        sub(E1, U1, U0);    // E1 = U1 - U0
+        sub(E2, U2, U0);    // E2 = U2 - U0
+        cross(N2, E1, E2);  // N2 = E1 \times E2
+        normalize(N2);      // normalization; added by ZK
+        d2 = -dot(N2, U0);  // d2 = -N2.U0
         /* plane equation 2: N2.X+d2=0 */
 
         /* put V0,V1,V2 into plane equation 2 */
@@ -576,28 +660,44 @@ class TriangleIntersects
         dv1 = dot(N2, V1) + d2;
         dv2 = dot(N2, V2) + d2;
 
-        if (fabs(dv0) < EPSILON) dv0 = 0.0;
-        if (fabs(dv1) < EPSILON) dv1 = 0.0;
-        if (fabs(dv2) < EPSILON) dv2 = 0.0;
+        conditionally_round_to_zero(dv0);  // if (fabs(dv0) < EPSILON) dv0 = 0.0;
+        conditionally_round_to_zero(dv1);  // if (fabs(dv1) < EPSILON) dv1 = 0.0;
+        conditionally_round_to_zero(dv2);  // if (fabs(dv2) < EPSILON) dv2 = 0.0;
 
         dv0dv1 = dv0 * dv1;
         dv0dv2 = dv0 * dv2;
 
         if (dv0dv1 > 0.0f && dv0dv2 > 0.0f) /* same sign on all of them + not equal 0 ? */
-            return false;                   /* no intersection occurs */
+            return false;                   /* RETURN: no intersection occurs */
 
         /* compute direction of intersection line */
-        cross(D, N1, N2);
+        cross(D, N1, N2);  // D = N1 \times N2 is orthogonal both to N1 and N2, unless both triangles are coplanar
 
-        /* compute and index to the largest component of D */
+        /*
+         * Warning! At this point we do not know if the faces are coplanar or not
+         * If they are, then vector D == (0,0,0), so it points at no direction
+         * It should be verified whether the code below, especially projection on a plane, is always robust to this
+         *  ambiguity
+         */
+
+        /* compute the index into the largest component of D */
         max = fabs(D[0]);
         index = 0;
         b = fabs(D[1]);
         c = fabs(D[2]);
-        if (b > max) max = b, index = 1;
-        if (c > max) max = c, index = 2;
+        if (b > max)
+        {
+            max = b;
+            index = 1;
+        }
+        if (c > max)
+        {
+            max = c;
+            index = 2;
+        }
 
-        /* this is the simplified projection onto L*/
+        /* Projection onto the axis corresponding to index */
+        /* This corresponds to projection onto x, y, or z, whichever is "closer" to the direction of isectline D */
         vp0 = V0[index];
         vp1 = V1[index];
         vp2 = V2[index];
@@ -609,9 +709,14 @@ class TriangleIntersects
         /* compute interval for triangle 1 */
         coplanar = compute_intervals_isectline(V0, V1, V2, vp0, vp1, vp2, dv0, dv1, dv2, dv0dv1, dv0dv2, isect1[0],
                                                isect1[1], isectpointA1, isectpointA2);
+
+        /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+        /* !!!!!!!  at this point we know whether the triangles are coplanar  !!!!!!!! */
+        /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+
         if (coplanar)
         {
-            return coplanar_tri_tri(N1, V0, V1, V2, U0, U1, U2);
+            return coplanar_tri_tri(N1, V0, V1, V2, U0, U1, U2);  // RETURN
         }
 
         /* compute interval for triangle 2 */
@@ -621,13 +726,16 @@ class TriangleIntersects
         smallest1 = sort2(isect1[0], isect1[1]);
         smallest2 = sort2(isect2[0], isect2[1]);
 
-        if (isect1[1] < isect2[0] || isect2[1] < isect1[0]) return false;
+        if (isect1[1] < isect2[0] || isect2[1] < isect1[0])  //
+            return false;                                    // RETURN
 
-        /* at this point, we know that the triangles intersect */
+        /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+        /* !!!!!!!  at this point we know that the triangles intersect  !!!!!!!!! */
+        /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
         if (!check_isect_endpoints)
         {
-            return true;
+            return true;  // RETURN
         }
 
         if (isect2[0] < isect1[0])
@@ -701,40 +809,42 @@ class TriangleIntersects
         return true;
     }
 
+    // N is a vector orthogonal to the plane defined by V0, V1, and V2.
+    //
     static bool coplanar_tri_tri(const TemplatedVec &N, const TemplatedVec &V0, const TemplatedVec &V1,
                                  const TemplatedVec &V2, const TemplatedVec &U0, const TemplatedVec &U1,
                                  const TemplatedVec &U2)
     {
-        TemplatedVec A = {0.f, 0.f, 0.f};
+        TemplatedVec A = {0.0, 0.0, 0.0};
         size_t i0, i1;
         /* first project onto an axis-aligned plane, that maximizes the area */
-        /* of the triangles, compute indices: i0,i1. */
-        A[0] = fabs(N[0]);
-        A[1] = fabs(N[1]);
-        A[2] = fabs(N[2]);
-        if (A[0] > A[1])
+        /* of the triangles, compute indices: i0, i1. */
+        A[X] = fabs(N[X]);
+        A[Y] = fabs(N[Y]);
+        A[Z] = fabs(N[Z]);
+        if (A[X] > A[Y])
         {
-            if (A[0] > A[2])
+            if (A[X] > A[Z])
             {
-                i0 = 1; /* A[0] is greatest */
+                i0 = 1; /* A[X] is greatest, so exclude X==0 from i0, i1 */
                 i1 = 2;
             }
             else
             {
-                i0 = 0; /* A[2] is greatest */
+                i0 = 0; /* A[Z] is greatest, so exclude Z==2 from i0, i1 */
                 i1 = 1;
             }
         }
-        else /* A[0]<=A[1] */
+        else /* A[X]<=A[Y] */
         {
-            if (A[2] > A[1])
+            if (A[Z] > A[Y])
             {
-                i0 = 0; /* A[2] is greatest */
+                i0 = 0; /* A[Z] is greatest, so exclude Z==2 from i0, i1 */
                 i1 = 1;
             }
             else
             {
-                i0 = 0; /* A[1] is greatest */
+                i0 = 0; /* A[Y] is greatest, so exclude Y==1 from i0, i1  */
                 i1 = 2;
             }
         }
@@ -766,6 +876,7 @@ class TriangleIntersects
         return false;
     }
 
+  private:
     inline static bool compute_intervals_isectline(const TemplatedVec &VERT0, const TemplatedVec &VERT1,
                                                    const TemplatedVec &VERT2, const declfloat VV0, const declfloat VV1,
                                                    const declfloat VV2, const declfloat D0, const declfloat D1,
@@ -773,7 +884,7 @@ class TriangleIntersects
                                                    declfloat &isect0, declfloat &isect1, TemplatedVec &isectpoint0,
                                                    TemplatedVec &isectpoint1)
     {
-        if (D0D1 > 0.0f)
+        if (D0D1 > 0.0)
         {
             /* here we know that D0D2<=0.0 */
             /* that is D0, D1 are on the same side, D2 on the other or on the plane */
@@ -805,6 +916,5 @@ class TriangleIntersects
         return false;
     }
 };
-}
+}  // namespace moeller
 #endif  // TRIANGLEINTERSECTS_H
-
