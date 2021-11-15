@@ -1041,7 +1041,7 @@ class TriangleIntersects
         declfloat t, s;  // unknowns solved for
         bool solution_is_unique;
 
-        moeller::solve_spd_linear_equations(s, t, solution_is_unique, aa, ab, bb, b0, b1);
+        moeller::detail::solve_spd_linear_equations(s, t, solution_is_unique, aa, ab, bb, b0, b1);
 
         // maximum and minimum acceptable values of s that lie within the face
         declfloat max_s = EV2.abs() / EV1.abs();
